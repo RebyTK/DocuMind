@@ -1,6 +1,6 @@
 # DocuMind — Document Extraction CLI
 
-![Tests](https://img.shields.io/badge/tests-pytest%20passing-brightgreen)
+![DocuMind Tests](https://github.com/RebyTK/DocuMind/actions/workflows/tests.yml/badge.svg)
 
 DocuMind is a Python-based command-line tool that extracts text and basic table data from TXT, PDF, and DOCX documents. It produces readable output files and JSON metadata for further processing.
 
