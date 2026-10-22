@@ -1,5 +1,7 @@
 # DocuMind — Document Extraction CLI
 
+![Tests](https://img.shields.io/badge/tests-pytest%20passing-brightgreen)
+
 DocuMind is a Python-based command-line tool that extracts text and basic table data from TXT, PDF, and DOCX documents. It produces readable output files and JSON metadata for further processing.
 
 ## Features
@@ -12,6 +14,14 @@ DocuMind is a Python-based command-line tool that extracts text and basic table 
 - **JSON metadata:** Records source filenames, file types, statistics, and extracted structures.
 - **Logging and error handling:** Reports processing activity and common file errors.
 - **Automated tests:** Uses pytest to test document readers, formatting, and pipeline behaviour.
+
+## Quick Example
+
+```powershell
+py main.py documents/sample_table.pdf
+```
+
+DocuMind writes the extracted output and JSON metadata to the `output/` directory.
 
 ## Project Structure
 
@@ -30,6 +40,31 @@ DocuMind/
 ├── requirements.txt            # Python dependencies
 └── .gitignore
 ```
+
+
+## Architecture
+
+```mermaid
+flowchart TD
+    A["Input Documents<br/>TXT · PDF · DOCX"] --> B{"Detect File Type"}
+
+    B -->|TXT| C["Read Text"]
+    B -->|PDF| D["Extract PDF Text<br/>pypdf"]
+    B -->|PDF tables| E["Extract Tables<br/>pdfplumber"]
+    B -->|DOCX| F["Extract Elements<br/>python-docx"]
+
+    C --> G["Clean / Format Content"]
+    D --> G
+    E --> G
+    F --> G
+
+    G --> H["Calculate Statistics"]
+    H --> I["Write Processed Output"]
+    H --> J["Write JSON Metadata"]
+    I --> K["Output Directory"]
+    J --> K
+```
+
 
 ## Requirements
 
