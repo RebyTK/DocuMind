@@ -1,0 +1,74 @@
+AI Engineering Internship Preparation Notes
+
+Student: Raghav
+Goal: Become internship-ready for AI Engineering by December 2026.
+
+Current Skills
+- Python fundamentals
+- Lists, tuples, sets, and dictionaries
+- Functions
+- enumerate() and zip()
+- Basic file handling
+- Basic CSV processing
+
+Topics to Learn
+1. Python modules and packages
+2. pathlib and file-system operations
+3. Exception handling
+4. Object-oriented programming
+5. Type hints
+6. Clean code and project structure
+7. APIs and HTTP requests
+8. NumPy and Pandas
+9. SQL
+10. Machine learning fundamentals
+11. Deep learning with PyTorch
+12. Large Language Models
+13. Embeddings and vector databases
+14. Retrieval-Augmented Generation (RAG)
+15. AI agents
+16. Deployment and Docker
+
+Projects
+
+Project 1: AI Document Processing CLI
+The application should accept a text or document file from the command line.
+It should read the file, clean the text, count words, identify important information,
+and produce a useful summary or report.
+
+Project 2: RAG Knowledge Assistant
+The system should allow users to upload documents and ask questions about them.
+Documents should be split into chunks, converted into embeddings, stored in a vector
+database, and retrieved when the user asks a question.
+
+Project 3: AI Research Agent
+The agent should accept a research question, search for relevant information,
+organize the findings, and produce a structured research report.
+
+Internship Preparation
+
+Important tasks:
+- Build projects with clean and readable code.
+- Use Git and GitHub for version control.
+- Write README files for projects.
+- Add proper exception handling.
+- Create tests for important functions.
+- Learn how to deploy applications.
+- Prepare a strong project portfolio.
+- Practice DSA and coding interview questions.
+
+Weekly Study Plan
+
+Monday: Python and problem solving
+Tuesday: Python project work
+Wednesday: Data science and machine learning
+Thursday: LLMs and RAG
+Friday: Project development
+Saturday: DSA and interview preparation
+Sunday: Review, documentation, and GitHub updates
+
+Important Note
+
+The goal is not simply to finish courses. Every topic should be followed by
+hands-on practice. Projects should gradually become more complex and should
+demonstrate practical AI engineering skills.
