@@ -2,7 +2,7 @@
 
 ![DocuMind Tests](https://github.com/RebyTK/DocuMind/actions/workflows/tests.yml/badge.svg)
 
-DocuMind is a Python-based command-line tool that extracts text and basic table data from TXT, PDF, and DOCX documents. It produces readable output files and JSON metadata for further processing.
+A Python-based document processing and semantic search system that extracts content from PDF, DOCX and TXT documents, splits content into manageable chunks, and generates dense vector embeddings for semantic retrieval.
 
 ## Features
 
