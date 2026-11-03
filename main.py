@@ -9,7 +9,8 @@ from processor.pdf_reader import extract_text_from_pdf
 from processor.docx_reader import extract_text_from_docx
 from processor.formatter import format_elements_as_markdown
 from processor.pdf_table_reader import extract_tables_from_pdf
-
+from processor.chunker import chunk_text_with_metadata
+from processor.embeddings import load_embedding_model, embed_chunks
 
 def main():
     output_dir = Path("output")
@@ -123,6 +124,27 @@ def main():
         cleaned_content = content
     else:
         cleaned_content = clean_text(content)
+    chunks = chunk_text_with_metadata(
+        text=cleaned_content,
+        source=file_path.name,
+        chunk_size=1000,
+        overlap=150,
+    )
+
+    logging.info(
+        "Document chunked: %s (%d chunks)",
+        file_path.name,
+        len(chunks),
+    )
+
+    model = load_embedding_model()
+
+    embedded_chunks = embed_chunks(chunks, model)
+    logging.info(
+        "Embeddings generated for %s (%d chunks)",
+        file_path.name,
+        len(embedded_chunks)
+    )
 
     stats = analyze_text(cleaned_content)
     print("================================")
@@ -157,7 +179,7 @@ def main():
         )
     except OSError as error:
         logging.error(
-            "Unable to write metadata to %s: %s",
+            "Unable to write cleaned content to %s: %s",
             output_path,
             error,
         )      
@@ -199,6 +221,43 @@ def main():
         return
     print("Metadata written to: ", output_file)
 
+
+    chunks_file = output_dir/(
+        file_path.stem +"_chunks.json"
+    )
+    try:
+        with chunks_file.open("w", encoding="utf-8") as file:
+            json.dump(
+                chunks,
+                file,
+                indent=4,
+                ensure_ascii=False
+            )
+    except OSError as error:
+        logging.error(
+            "Unable to write chunks to %s: %s",
+            chunks_file,
+            error
+        )
+        return
+    print("Chunks written to: ", chunks_file)
+
+    embeddings_file = output_dir / (
+        file_path.stem + "_embeddings.json"
+    )
+    try:
+        with embeddings_file.open("w", encoding="utf-8") as file:
+            json.dump(
+                embedded_chunks,
+                file,
+                indent=4,
+                ensure_ascii=False
+            )
+    except OSError as error:
+        logging.error("Could not save embeddings: %s", error)
+        return
+    print("Embeddings written to: ", embeddings_file)
+    
 if __name__ == "__main__":
     main()
 
