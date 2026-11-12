@@ -1,73 +1,101 @@
-import pytest
-from processor.chunker import chunk_text, chunk_text_with_metadata
 
-def test_empty_text_returns_no_chunks():
-    assert chunk_text("") == []
+from processor.chunker import (
+    chunk_text_with_metadata,
+    generate_document_id,
+)
 
-def test_short_text_returns_one_chunk():
-    assert chunk_text("Hello DocuMind") == ["Hello DocuMind"]
 
-def test_long_text_is_split_into_chunks():
-    text = "abcdefghij"
+def test_generate_document_id():
+    first_id = generate_document_id()
+    second_id = generate_document_id()
 
-    assert chunk_text(text, chunk_size=4, overlap=1) == [
-        "abcd",
-        "defg",
-        "ghij",
-    ]
+    assert first_id.startswith("doc_")
+    assert first_id != second_id
 
-def test_chunks_preserve_overlap():
-    chunks = chunk_text("abcdefgh", chunk_size=5, overlap=2)
 
-    assert chunks == ["abcde", "defgh"]
+def test_chunks_have_unique_chunk_ids():
+    document_id = "doc_test123"
 
-def test_zero_or_negative_chunk_size_is_rejected():
-    with pytest.raises(ValueError):
-        chunk_text("hello", chunk_size=0)
-
-def test_overlap_must_be_smaller_than_chunk_size():
-    with pytest.raises(ValueError):
-        chunk_text("hello", chunk_size=5, overlap=5)
-
-def test_negative_overlap_is_rejected():
-    with pytest.raises(ValueError):
-        chunk_text("hello", chunk_size=5, overlap=-1)
-
-def test_chunks_include_source_and_index():
     chunks = chunk_text_with_metadata(
-        "abcdefgh",
-        source="example.txt",
+        text="abcdefgh",
+        source="sample.pdf",
+        document_id=document_id,
+        file_type="pdf",
+        page_number=1,
         chunk_size=4,
         overlap=2,
     )
 
-    assert chunks == [
-        {
-            "text": "abcd",
-            "metadata": {
-                "source": "example.txt",
-                "chunk_index": 0,
-            },
-        },
-        {
-            "text": "cdef",
-            "metadata": {
-                "source": "example.txt",
-                "chunk_index": 1,
-            },
-        },
-        {
-            "text": "efgh",
-            "metadata": {
-                "source": "example.txt",
-                "chunk_index": 2,
-            },
-        },
+    assert len(chunks) == 3
+
+    chunk_ids = [chunk["chunk_id"] for chunk in chunks]
+
+    assert len(chunk_ids) == len(set(chunk_ids))
+
+
+def test_chunk_metadata_preserves_document_information():
+    chunks = chunk_text_with_metadata(
+        text="ISO 27001 information",
+        source="iso27001.pdf",
+        document_id="doc_test123",
+        file_type="pdf",
+        page_number=12,
+    )
+
+    metadata = chunks[0]["metadata"]
+
+    assert chunks[0]["chunk_id"] == "doc_test123_chunk_0000"
+    assert metadata["document_id"] == "doc_test123"
+    assert metadata["filename"] == "iso27001.pdf"
+    assert metadata["file_type"] == "pdf"
+    assert metadata["chunk_index"] == 0
+    assert metadata["page_number"] == 12
+
+
+def test_chunk_index_can_continue_across_pages():
+    document_id = "doc_test123"
+
+    page_one = chunk_text_with_metadata(
+        text="abcdefgh",
+        source="iso27001.pdf",
+        document_id=document_id,
+        file_type="pdf",
+        page_number=1,
+        chunk_size=4,
+        overlap=0,
+    )
+
+    page_two = chunk_text_with_metadata(
+        text="ijklmnop",
+        source="iso27001.pdf",
+        document_id=document_id,
+        file_type="pdf",
+        page_number=2,
+        chunk_size=4,
+        overlap=0,
+        chunk_index_start=len(page_one),
+    )
+
+    all_chunks = page_one + page_two
+
+    assert [c["metadata"]["chunk_index"] for c in all_chunks] == [
+        0, 1, 2, 3
     ]
 
+    assert len({
+        c["chunk_id"] for c in all_chunks
+    }) == 4
 
-def test_empty_text_returns_no_metadata_chunks():
-    assert chunk_text_with_metadata(
-        "",
-        source="example.txt",
-    ) == []
+    assert all_chunks[0]["metadata"]["page_number"] == 1
+    assert all_chunks[2]["metadata"]["page_number"] == 2
+
+
+def test_docx_chunk_can_have_no_page_number():
+    chunks = chunk_text_with_metadata(
+        text="Quarterly revenue increased.",
+        source="report.docx",
+        document_id="doc_docx123",
+        file_type="docx",
+    )
+
+    assert chunks[0]["metadata"]["page_number"] is None

@@ -1,0 +1,118 @@
+[
+    {
+        "query": "What is ISO 27001?",
+        "relevant_chunks": [17]
+    },
+    {
+        "query": "What is the purpose of ISO 27001?",
+        "relevant_chunks": [17]
+    },
+    {
+        "query": "What activities are required for document control?",
+        "relevant_chunks": [35]
+    },
+    {
+        "query": "How should external-origin documents be controlled?",
+        "relevant_chunks": [35]
+    },
+    {
+        "query": "What is the relationship between ISO 27000 and ISO 27001?",
+        "relevant_chunks": [17, 20]
+    },
+    {
+        "query": "What factors determine the extent of documented information required by an ISMS?",
+        "relevant_chunks": [34]
+    },
+    {
+        "query": "Which standard provides the terminology used by ISO 27001?",
+        "relevant_chunks": [17, 20]
+    },
+    {
+        "query": "How should documented information be protected?",
+        "relevant_chunks": [35]
+    },
+    {
+        "query": "How should records be protected against unauthorized access and release?",
+        "relevant_chunks": [75]
+    },
+    {
+        "query": "What security measures are required before equipment is disposed of or reused?",
+        "relevant_chunks": [81, 58]
+    },
+    {
+        "query": "What should organizations consider when determining their internal and external context?",
+        "relevant_chunks": [20]
+    },
+    {
+        "query": "How should information security be maintained during disruption?",
+        "relevant_chunks": [51]
+    },
+    {
+        "query": "How should an organization create and update documented information?",
+        "relevant_chunks": [34]
+    },
+    {
+        "query": "What is required for ICT readiness for business continuity?",
+        "relevant_chunks": [51, 74]
+    },
+    {
+        "query": "What should an internal audit programme include?",
+        "relevant_chunks": [39, 40]
+    },
+    {
+        "query": "What actions should an organization take when a nonconformity occurs?",
+        "relevant_chunks": [42, 43]
+    },
+    {
+        "query": "What must an organization do to ensure the competence of people performing work that affects information security?",
+        "relevant_chunks": [32]
+    },
+    {
+        "query": "What steps must an organization follow to assess information security risks?",
+        "relevant_chunks": [27, 28]
+    },
+    {
+        "query": "How should an organization select and implement information security risk treatment options?",
+        "relevant_chunks": [28, 30]
+    },
+    {
+        "query": "What should an organization monitor, measure, analyse and evaluate to assess its information security management system performance?",
+        "relevant_chunks": [38]
+    },
+    {
+        "query": "What inputs should top management consider when conducting an information security management review?",
+        "relevant_chunks": [40, 41]
+    },
+    {
+        "query": "What is an organization required to continually improve in its information security management system?",
+        "relevant_chunks": [42]
+    },
+    {
+        "query": "What should people working under an organization's control be aware of regarding information security?",
+        "relevant_chunks": [32, 33]
+    },
+    {
+        "query": "What responsibilities must top management fulfil to demonstrate leadership and commitment to the information security management system?",
+        "relevant_chunks": [22, 23]
+    },
+    {
+        "query": "How should an organization identify the interested parties relevant to its information security management system and determine their requirements?",
+        "relevant_chunks": [21]
+    },
+    {
+        "query": "What factors must an organization consider when determining the boundaries and applicability of its information security management system?",
+        "relevant_chunks": [22]
+    },
+    {
+        "query": "What requirements must an organization's information security objectives satisfy?",
+        "relevant_chunks": [30, 31]
+    },
+    {
+        "query": "What must an organization do to ensure its internal audits are conducted objectively and impartially?",
+        "relevant_chunks": [40]
+    },
+    {
+        "query": "When should an organization conduct internal audits of its information security management system?",
+        "relevant_chunks": [39]
+    }
+]

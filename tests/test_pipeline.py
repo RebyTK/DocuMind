@@ -35,8 +35,18 @@ def test_docx_pipeline_generates_markdown_and_metadata(
     main.main()
 
     output_dir = tmp_path / "output"
-    markdown_path = output_dir / "report_cleaned.md"
-    metadata_path = output_dir / "report_metadata.json"
+    registry_path = output_dir / "document_registry.json"
+
+    registry = json.loads(
+        registry_path.read_text(encoding="utf-8")
+    )
+
+    document = next(
+        iter(registry["documents"].values())
+    )
+
+    markdown_path = output_dir / document["cleaned_file"]
+    metadata_path = output_dir / document["metadata_file"]
 
     assert markdown_path.is_file()
     assert metadata_path.is_file()
@@ -51,7 +61,9 @@ def test_docx_pipeline_generates_markdown_and_metadata(
     )
 
     assert metadata["filename"] == "report.docx"
-    assert metadata["output_file"] == "report_cleaned.md"
+    assert metadata["output_file"] == Path(
+        document["cleaned_file"]
+    ).name
     assert any(
         element["type"] == "table"
         for element in metadata["elements"]
@@ -89,8 +101,18 @@ def test_pdf_pipeline_preserves_tables(tmp_path, monkeypatch):
 
     output_dir = tmp_path / "output"
 
-    cleaned_path = output_dir / "report_cleaned.txt"
-    metadata_path = output_dir / "report_metadata.json"
+    registry_path = output_dir / "document_registry.json"
+
+    registry = json.loads(
+        registry_path.read_text(encoding="utf-8")
+    )
+
+    document = next(
+        iter(registry["documents"].values())
+    )
+
+    cleaned_path = output_dir / document["cleaned_file"]
+    metadata_path = output_dir / document["metadata_file"]
 
     assert cleaned_path.is_file()
     assert metadata_path.is_file()
