@@ -28,6 +28,16 @@ from processor.document_manager import (
     rebuild_shared_index,
 )
 from processor.llm import generate_answer
+from repositories.document_repository import (
+    get_document_by_hash,
+    list_documents,
+    delete_document,
+)
+from processor.retrieval import retrieve_chunks
+
+from repositories.ingestion_repository import (
+    persist_document_with_chunks,
+)
 
 
 SUPPORTED_EXTENSIONS = {".txt", ".pdf", ".docx"}
@@ -334,6 +344,127 @@ def ingest_document(
     )
 
     return document_id, stats
+def ingest_document_to_postgres(
+    file_path: Path,
+    embedding_model=None,
+) -> dict:
+    """Extract, embed and persist a document directly in PostgreSQL."""
+
+    logging.info(
+        "Starting PostgreSQL ingestion: %s",
+        file_path.name,
+    )
+
+    # Calculate SHA-256 hash.
+    file_hash = calculate_file_hash(file_path)
+
+    # Check whether the document already exists.
+    existing_document = get_document_by_hash(file_hash)
+
+    if existing_document:
+        logging.info(
+            "Document already exists in PostgreSQL: %s",
+            existing_document["filename"],
+        )
+
+        return {
+            "inserted": False,
+            **existing_document,
+        }
+
+    # Generate a new document ID.
+    document_id = generate_document_id()
+
+    # Extract and chunk the document.
+    cleaned_content, chunks, extra_metadata = extract_document(
+        file_path=file_path,
+        document_id=document_id,
+    )
+
+    if not chunks:
+        raise ValueError(
+            "No extractable content found in the document."
+        )
+
+    logging.info(
+        "Document chunked: %d chunks",
+        len(chunks),
+    )
+
+    # Generate embeddings. Reuse a model supplied by the CLI when available.
+    if embedding_model is None:
+        embedding_model = load_embedding_model()
+
+    embedded_chunks = embed_chunks(
+        chunks,
+        embedding_model,
+    )
+
+    logging.info(
+        "Generated embeddings: %d",
+        len(embedded_chunks),
+    )
+
+    # Calculate document statistics.
+    stats = analyze_text(cleaned_content)
+
+    # Store useful summary metadata in PostgreSQL.
+    document_metadata = {
+        **stats,
+        "document_id": document_id,
+    }
+
+    if "page_count" in extra_metadata:
+        document_metadata["page_count"] = (
+            extra_metadata["page_count"]
+        )
+
+    if "pages_without_extractable_text" in extra_metadata:
+        document_metadata["pages_without_extractable_text"] = (
+            extra_metadata["pages_without_extractable_text"]
+        )
+
+    if "tables" in extra_metadata:
+        document_metadata["table_count"] = len(
+            extra_metadata["tables"]
+        )
+
+    if "elements" in extra_metadata:
+        document_metadata["element_count"] = len(
+            extra_metadata["elements"]
+        )
+
+    # Build the database document record.
+    document_record = {
+        "document_id": document_id,
+        "filename": file_path.name,
+        "file_type": file_path.suffix.lower().lstrip("."),
+        "file_hash": file_hash,
+        "total_chunks": len(embedded_chunks),
+        "metadata": document_metadata,
+    }
+
+    # Atomically persist document and chunks.
+    result = persist_document_with_chunks(
+        document=document_record,
+        embedded_chunks=embedded_chunks,
+    )
+
+    if not result["inserted"]:
+        logging.info(
+            "Document was registered concurrently: %s",
+            result["filename"],
+        )
+        return result
+
+    logging.info(
+        "Document successfully stored in PostgreSQL: %s",
+        document_id,
+    )
+
+    result["stats"] = stats
+
+    return result
 
 
 def display_search_results(
@@ -372,224 +503,227 @@ def display_search_results(
 
 
 def main():
-    """Run the DocuMind document processing CLI."""
+    """Run the PostgreSQL-backed DocuMind CLI."""
 
     output_dir = Path("output")
     output_dir.mkdir(parents=True, exist_ok=True)
-
     setup_logging(output_dir)
 
-    logging.info("DocuMind Started")
-
     parser = argparse.ArgumentParser(
-        description="DocuMind - AI Document Processor"
+        description="DocuMind - Multi-document RAG application"
     )
 
     parser.add_argument(
         "file",
-        help="Path to the document to process",
+        nargs="?",
+        help="Optional PDF, DOCX, or TXT document to ingest",
     )
-
     parser.add_argument(
         "--query",
         type=str,
-        help="Search across all registered documents",
+        help="Search all documents stored in PostgreSQL",
     )
-
     parser.add_argument(
         "--top-k",
         type=int,
-        default=3,
-        help="Number of relevant chunks to retrieve",
+        default=5,
+        help="Number of chunks to retrieve (default: 5)",
     )
     parser.add_argument(
         "--answer",
         action="store_true",
-        help = "Generate a grounded answer using local LLM",
+        help="Generate a grounded answer using the local LLM",
+    )
+    parser.add_argument(
+        "--list-documents",
+        action="store_true",
+        help="List documents stored in PostgreSQL",
+    )
+    parser.add_argument(
+        "--delete",
+        metavar="DOCUMENT_ID",
+        help="Delete a document and its chunks from PostgreSQL",
     )
 
     args = parser.parse_args()
 
-    if args.answer and not args.query:
-        parser.error("--answer requires --query.")
-
     if args.top_k < 1:
         parser.error("--top-k must be at least 1")
 
-    file_path = Path(args.file)
+    if args.answer and not args.query:
+        parser.error("--answer requires --query")
 
-    if not file_path.is_file():
-        logging.error("File not found: %s", file_path)
-        return
-
-    if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
-        logging.error(
-            "Unsupported file type: %s",
-            file_path.suffix or "(no extension)",
-        )
-        return
-
-    # Load the persistent document registry.
-    registry_path = output_dir / "document_registry.json"
-
-    try:
-        registry = load_registry(registry_path)
-
-    except (OSError, ValueError, json.JSONDecodeError):
-        logging.exception("Unable to load document registry")
-        return
-
-    # Calculate the file hash for duplicate detection.
-    try:
-        file_hash = calculate_file_hash(file_path)
-
-    except OSError:
-        logging.exception("Unable to calculate document hash")
-        return
-
-    existing_document = find_document_by_hash(
-        registry,
-        file_hash,
-    )
-
-    model = None
-    stats = None
-
-    if existing_document:
-        document_id = existing_document["document_id"]
-
-        print(
-            f"\nDocument already registered: "
-            f"{existing_document['filename']}"
+    management_operation = args.list_documents or args.delete is not None
+    if management_operation and (args.file or args.query or args.answer):
+        parser.error(
+            "--list-documents and --delete cannot be combined with "
+            "document ingestion or search."
         )
 
-        logging.info(
-            "Skipping duplicate document: %s",
-            existing_document["filename"],
+    if args.list_documents and args.delete is not None:
+        parser.error("Choose either --list-documents or --delete.")
+
+    if not any((args.file, args.query, args.list_documents, args.delete)):
+        parser.error(
+            "Provide a document to ingest, --query, --list-documents, "
+            "or --delete DOCUMENT_ID."
         )
 
-    else:
+    logging.info("DocuMind started")
+
+    # Management operation: list all PostgreSQL documents.
+    if args.list_documents:
         try:
-            # Load the model only when a new document needs embeddings.
-            model = load_embedding_model()
-
-            document_id, stats = ingest_document(
-                file_path=file_path,
-                output_dir=output_dir,
-                registry=registry,
-                file_hash=file_hash,
-                model=model,
-            )
-
+            documents = list_documents()
         except Exception:
-            logging.exception(
-                "Failed to ingest document: %s",
-                file_path.name,
-            )
+            logging.exception("Unable to list PostgreSQL documents")
             return
 
-    # Rebuild the shared FAISS index from persisted embeddings.
-    try:
-        index, all_embedded_chunks = rebuild_shared_index(
-            registry,
-            output_dir,
-        )
+        print("\n================================")
+        print("DOCUMIND DOCUMENT COLLECTION")
+        print("================================")
 
-    except Exception:
-        logging.exception("Unable to rebuild shared FAISS index")
+        if not documents:
+            print("No documents are registered.")
+            return
+
+        for document in documents:
+            print(f"\nFilename: {document['filename']}")
+            print(f"Document ID: {document['document_id']}")
+            print(f"Type: {document['file_type']}")
+            print(f"Chunks: {document['total_chunks']}")
+            print(f"Created: {document['created_at']}")
+
+        print(f"\nTotal documents: {len(documents)}")
         return
 
-    if index is None:
-        logging.warning("No document chunks available for searching")
-    else:
-        logging.info(
-            "Shared FAISS index rebuilt: %d vectors across %d documents",
-            index.ntotal,
-            len(registry["documents"]),
-        )
-
-    # Search across all registered documents.
-    if args.query:
-        if index is None:
-            print("\nNo documents are available for searching.")
+    # Management operation: delete one document. The schema's ON DELETE
+    # CASCADE constraint removes its chunks in the same database operation.
+    if args.delete is not None:
+        try:
+            deleted = delete_document(args.delete)
+        except Exception:
+            logging.exception("Unable to delete document from PostgreSQL")
             return
 
-        try:
-            # Reuse the model if it was loaded during ingestion.
-            if model is None:
-                model = load_embedding_model()
+        if deleted:
+            print(f"Document deleted successfully: {args.delete}")
+        else:
+            print(f"Document not found: {args.delete}")
+        return
 
-            query_embedding = model.encode(
+    file_path = None
+    embedding_model = None
+
+    # Ingest a document directly into PostgreSQL.
+    if args.file:
+        file_path = Path(args.file)
+
+        if not file_path.is_file():
+            parser.error(f"Document file not found: {file_path}")
+
+        if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            parser.error(
+                f"Unsupported file type: "
+                f"{file_path.suffix or '(no extension)'}"
+            )
+
+        try:
+            # If ingestion and search are requested together, load the
+            # embedding model once and reuse it for both operations.
+            if args.query:
+                embedding_model = load_embedding_model()
+
+            ingestion_result = ingest_document_to_postgres(
+                file_path=file_path,
+                embedding_model=embedding_model,
+            )
+
+        except Exception as error:
+            # Keep expected document failures readable at the CLI boundary.
+            # The ingestion repository handles database transaction rollback.
+            logging.error(
+                "PostgreSQL document ingestion failed: %s",
+                error,
+            )
+            print(f"\nDocument ingestion failed: {error}")
+            return
+
+        if ingestion_result.get("inserted"):
+            print("\n================================")
+            print("DOCUMIND DOCUMENT INGESTION")
+            print("================================")
+            print("Status: Successfully ingested")
+            print("Filename:", ingestion_result["filename"])
+            print("Document ID:", ingestion_result["document_id"])
+            print("Chunks:", ingestion_result["total_chunks"])
+
+            stats = ingestion_result.get("stats", {})
+            if stats:
+                print("Characters:", stats.get("characters"))
+                print("Words:", stats.get("words"))
+                print("Lines:", stats.get("lines"))
+        else:
+            print(
+                "\nDocument already exists in PostgreSQL: "
+                f"{ingestion_result['filename']}"
+            )
+            print("Document ID:", ingestion_result["document_id"])
+            print("Stored chunks:", ingestion_result["total_chunks"])
+
+    # Search across the complete PostgreSQL document collection.
+    if args.query:
+        try:
+            if embedding_model is None:
+                embedding_model = load_embedding_model()
+
+            query_embedding = embedding_model.encode(
                 [args.query],
                 convert_to_numpy=True,
                 show_progress_bar=False,
             )[0].tolist()
 
-            #Retrieve relevant chunks from the shared FAISS index.
-            results = search_index(
+            results = retrieve_chunks(
                 query_embedding=query_embedding,
-                index=index,
-                embedded_chunks=all_embedded_chunks,
                 top_k=args.top_k,
+                backend="postgres",
             )
+
             if args.answer:
                 answer_result = generate_answer(
                     question=args.query,
                     retrieved_chunks=results,
                 )
+
                 print("\n================================")
                 print("DOCUMIND GENERATED ANSWER")
                 print("================================")
                 print(answer_result["answer"])
 
                 print("\nCited Sources:")
+                cited_sources = answer_result.get("cited_sources", [])
+                invalid_citations = answer_result.get("invalid_citations", [])
 
-                cited_sources = answer_result["cited_sources"]
-                invalid_citations = answer_result["invalid_citations"]
                 if cited_sources:
                     for source in cited_sources:
-                        page = source["page_number"]
-
-                        page_info = (
-                            f", Page{page}"
-                            if page is not None
-                            else ""
-                        )
+                        page = source.get("page_number")
+                        page_info = f", Page {page}" if page is not None else ""
                         print(
-                            f"[{source["citation"]}]"
-                            f"[{source["source"]}{page_info}]"
+                            f"[{source['citation']}] "
+                            f"{source['source']}{page_info}"
                         )
                 else:
-                    print("No valid source citations were identified")
-                if invalid_citations:
-                    print("\nWARNING: Invalid citation references detected: ")
-                    print(", ".join(invalid_citations))
+                    print("No valid source citations were identified.")
 
+                if invalid_citations:
+                    print("\nWARNING: Invalid citation references detected:")
+                    print(", ".join(invalid_citations))
             else:
-                #Display raw retrieval results when --answer is not specified.
                 display_search_results(args.query, results)
 
-            
-
         except Exception:
-            logging.exception("Semantic search failed")
+            logging.exception("PostgreSQL query processing failed")
             return
-
-    # Display statistics for newly ingested documents.
-    if stats is not None:
-        print("\n================================")
-        print("DOCUMIND DOCUMENT PROCESSOR")
-        print("================================")
-        print("File:", file_path.name)
-        print("Document ID:", document_id)
-        print("Type:", file_path.suffix)
-
-        print("\nDocument Statistics")
-        print("Characters:", stats["characters"])
-        print("Words:", stats["words"])
-        print("Lines:", stats["lines"])
-
-    print("\nRegistered documents:", len(registry["documents"]))
 
 
 if __name__ == "__main__":

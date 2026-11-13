@@ -1,334 +1,342 @@
-# DocuMind — Multi-Document Semantic Retrieval & RAG Foundation
+# DocuMind — Local RAG Document Assistant
 
 ![DocuMind Tests](https://github.com/RebyTK/DocuMind/actions/workflows/tests.yml/badge.svg)
 
-**DocuMind** is a Python-based multi-document processing and semantic retrieval system built as a foundation for Retrieval-Augmented Generation (RAG). It extracts content from PDF, DOCX, and TXT files, generates transformer-based embeddings, and uses FAISS to retrieve relevant information across a persistent document collection.
+DocuMind is a local Retrieval-Augmented Generation (RAG) application for uploading documents, searching their contents, and asking questions with source references. It supports PDF, DOCX, and TXT files and combines a Streamlit interface, FastAPI backend, PostgreSQL with pgvector, Sentence Transformers embeddings, and a locally hosted Qwen3 model through Ollama.
 
-The project focuses on building a modular document intelligence pipeline, covering document ingestion, text chunking, embedding generation, vector search, document management, and retrieval evaluation.
+**Project focus:** a practical, explainable RAG application. DocuMind uses conventional retrieval and generation rather than agents, fine-tuning, or a hosted LLM API.
 
-## Key Features
+## Features
 
-### 1. Multi-Format Document Processing
-
-- **PDF extraction:** Extract embedded text page by page using `pypdf`.
-- **PDF table extraction:** Extract tables using `pdfplumber` and incorporate them into their original page content.
-- **DOCX processing:** Extract structured headings, paragraphs, lists, and tables using `python-docx`.
-- **TXT processing:** Read and clean plain-text documents.
-- **Content formatting:** Convert supported DOCX elements into Markdown.
-- **Document analysis:** Calculate character, word, and line statistics.
-
-### 2. Text Chunking & Metadata
-
-- Character-based chunking with configurable chunk size and overlap.
-- Default chunk size of 1,000 characters and overlap of 150 characters.
-- Page-aware chunking for PDF documents.
-- Unique document IDs and chunk IDs.
-- Metadata preservation, including source filename, document ID, file type, chunk index, and page number where available.
-
-### 3. Embedding Generation
-
-- Dense vector embeddings using **Sentence Transformers**.
-- Pretrained model: `all-MiniLM-L6-v2`.
-- 384-dimensional embeddings.
-- Batch embedding generation.
-- Chunk text and metadata preserved alongside embeddings.
-
-### 4. FAISS Semantic Retrieval
-
-- FAISS vector indexing using `IndexFlatIP`.
-- L2-normalized embeddings for cosine-similarity search.
-- Query embedding generation using the same Sentence Transformer model.
-- Top-K semantic retrieval.
-- Document-aware result diversity to limit excessive chunks from a single document.
-- Similarity scores returned with retrieved chunks.
-
-### 5. Persistent Multi-Document Management
-
-- Register and manage multiple documents through a JSON document registry.
-- Persist document chunks and embeddings separately.
-- Rebuild a shared FAISS index from all registered document embeddings.
-- SHA-256 file hashing for duplicate document detection.
-- Reuse previously ingested documents without processing duplicates again.
-
-### 6. Retrieval Evaluation
-
-- Manually curated retrieval evaluation queries.
-- Precision@K.
-- Recall@K.
-- Reciprocal Rank.
-- Mean Reciprocal Rank (MRR).
-- Evaluation utilities and automated tests.
-
-### 7. Engineering & Reliability
-
-- Modular Python architecture.
-- CLI-based document ingestion and semantic search using `argparse`.
-- Logging and exception handling.
-- Atomic JSON persistence for document registry and document data.
-- Automated testing using `pytest`.
-- GitHub Actions CI workflow.
+- **Multi-format ingestion:** upload PDF, DOCX, and TXT documents.
+- **Text and table extraction:** extract text and supported tables from PDFs, paragraphs and tables from DOCX files, and plain text from TXT files.
+- **Chunking and metadata:** split extracted content into overlapping chunks and retain document, chunk, and page metadata where available.
+- **Semantic embeddings:** generate 384-dimensional vectors with `sentence-transformers/all-MiniLM-L6-v2`.
+- **Persistent vector storage:** store document records, chunks, metadata, and embeddings in PostgreSQL using pgvector.
+- **Vector retrieval:** retrieve relevant passages using cosine similarity and a PostgreSQL HNSW index.
+- **Grounded question answering:** provide retrieved passages to a local Qwen3 model through Ollama and return an answer with source citations.
+- **Document management:** list, inspect, and delete indexed documents.
+- **Three interfaces/components:** Streamlit web UI, FastAPI REST API, and a Python CLI.
+- **Containerized deployment:** Docker Compose runs PostgreSQL, the API, and the Streamlit frontend.
+- **Automated tests:** pytest coverage for document processing, API behavior, repositories, retrieval utilities, and document lifecycle operations.
 
 ## Architecture
 
-DocuMind currently supports document ingestion, persistent storage, and semantic retrieval. LLM-based answer generation is planned as the next development milestone.
-
 ```mermaid
 flowchart TD
-    A["Input Documents<br/>PDF · DOCX · TXT"] --> B["Document Validation"]
-    B --> C["SHA-256 Duplicate Detection"]
-
-    C -->|New Document| D["Document Extraction"]
-    C -->|Already Registered| J["Load Existing Collection"]
-
-    D --> E["Clean / Format Content"]
-    E --> F["Text Chunking"]
-    F --> G["Attach Chunk Metadata"]
-    G --> H["Sentence Transformer"]
-    H --> I["Generate 384-Dimensional Embeddings"]
-
-    I --> K["Persist Chunks and Embeddings"]
-    K --> L["Update Document Registry"]
-    L --> J
-
-    J --> M["Rebuild Shared FAISS Index"]
-    M --> N["User Search Query"]
-    N --> O["Generate Query Embedding"]
-    O --> P["Top-K Semantic Retrieval"]
-    P --> Q["Document-Aware Result Diversity"]
-    Q --> R["Retrieved Chunks + Source Metadata"]
+    USER["User"] --> UI["Streamlit frontend"]
+    USER --> CLI["Python CLI"]
+    UI --> API["FastAPI REST API"]
+    API --> SVC["Application services"]
+    CLI --> CORE["Document / retrieval pipeline"]
+    SVC --> CORE
+    CORE --> ING["Document ingestion"]
+    CORE --> RET["Semantic retrieval"]
+    ING --> EXT["PDF / DOCX / TXT extraction"]
+    EXT --> CLEAN["Cleaning and chunking"]
+    CLEAN --> EMB["Sentence Transformers embeddings"]
+    EMB --> DB[("PostgreSQL + pgvector")]
+    RET --> DB
+    RET --> CTX["Retrieved passages + metadata"]
+    CTX --> OLLAMA["Ollama — Qwen3"]
+    OLLAMA --> ANSWER["Answer + source citations"]
+    ANSWER --> API
 ```
 
-## Tech Stack
+### RAG request flow
 
-| Category | Technologies |
+1. A document is uploaded through Streamlit or the API, or ingested through the CLI.
+2. DocuMind extracts supported text and tables, cleans the content, and splits it into overlapping chunks.
+3. Sentence Transformers generates a 384-dimensional embedding for each chunk.
+4. PostgreSQL stores the document record, chunk text, metadata, and vector embeddings.
+5. A search or question is embedded with the same model and matched against stored vectors using cosine similarity.
+6. For question answering, the retrieved passages are sent as context to Ollama. The generated answer includes references to retrieved sources.
+
+## Technology stack
+
+| Area | Technology |
 |---|---|
 | Language | Python |
-| Document Processing | pypdf, pdfplumber, python-docx |
-| Text Processing | Python, pathlib |
-| Embeddings | Sentence Transformers |
-| Embedding Model | all-MiniLM-L6-v2 |
-| Vector Search | FAISS (`faiss-cpu`) |
-| Numerical Computing | NumPy |
-| Data Serialization | JSON |
-| Testing | pytest |
-| CI/CD | GitHub Actions |
+| Frontend | Streamlit |
+| Backend | FastAPI, Uvicorn |
+| Database | PostgreSQL 17, pgvector |
+| Embeddings | Sentence Transformers, `all-MiniLM-L6-v2` (384 dimensions) |
+| Vector index | pgvector HNSW, cosine distance |
+| Local LLM | Ollama, `qwen3:4b` |
+| PDF processing | pypdf, pdfplumber |
+| DOCX processing | python-docx |
+| Database driver | psycopg |
+| API / HTTP | requests, httpx |
+| Tests | pytest |
+| Deployment | Docker, Docker Compose |
 
-## Project Structure
+## Repository layout
 
 ```text
 DocuMind/
-│
-├── .github/
-│   └── workflows/
-│       └── tests.yml
-│
-├── documents/                    # Input documents (local)
-│
-├── evaluation/
-│   ├── __init__.py
-│   ├── evaluate_retrieval.py     # Retrieval metrics and evaluation
-│   ├── queries.json              # Curated evaluation queries
-│   └── run_evaluation.py         # Evaluation runner
-│
-├── processor/
-│   ├── analyser.py               # Document statistics
-│   ├── cleaner.py                # Text cleaning
-│   ├── chunker.py                # Chunking and metadata generation
-│   ├── document_manager.py       # Registry and persistent storage
-│   ├── docx_reader.py            # DOCX extraction
-│   ├── embeddings.py             # Embedding generation
-│   ├── formatter.py              # Structured elements to Markdown
-│   ├── pdf_reader.py             # PDF text extraction
-│   ├── pdf_table_reader.py       # PDF table extraction
-│   └── vector_store.py           # FAISS indexing and semantic search
-│
-├── tests/
-│   ├── test_analyser.py
-│   ├── test_chunker.py
-│   ├── test_cleaner.py
-│   ├── test_document_manager.py
-│   ├── test_docx_reader.py
-│   ├── test_embeddings.py
-│   ├── test_evaluation.py
-│   ├── test_formatter.py
-│   ├── test_pdf_reader.py
-│   ├── test_pdf_table_reader.py
-│   ├── test_pipeline.py
-│   └── test_vector_store.py
-│
-├── inspect_chunks.py             # Chunk inspection utility
-├── main.py                       # CLI entry point
-├── requirements.txt
+├── .github/workflows/       # GitHub Actions test workflow
+├── api/                     # FastAPI application, routes, and schemas
+├── database/                # PostgreSQL connection and SQL migrations
+│   └── migrations/
+├── evaluation/              # Small retrieval-evaluation utilities and query data
+├── frontend/                # Streamlit application
+├── processor/               # Extraction, cleaning, chunking, embeddings, retrieval, and LLM
+├── repositories/            # PostgreSQL persistence and query operations
+├── services/                # Ingestion, document, retrieval, and RAG services
+├── tests/                   # Unit, API, repository, and lifecycle tests
+├── documents/                # Local input documents (not committed)
+├── output/                   # Local generated data and logs (not committed)
+├── Dockerfile.api
+├── Dockerfile.frontend
+├── docker-compose.yml
+├── .dockerignore
+├── .env.example
 ├── .gitignore
+├── main.py                   # CLI entry point
+├── requirements.txt
 └── README.md
-
 ```
 
-## Installation
+## Prerequisites
+
+For the recommended Docker setup:
+
+- Windows, macOS, or Linux
+- Docker Desktop with Docker Compose (Docker Desktop + WSL2 on Windows)
+- Git
+- Ollama installed on the host machine
+- The `qwen3:4b` model available in Ollama
+
+For running Python components directly on the host, use Python 3.11 or newer. The project has been developed locally with Python 3.13.1.
+
+## Quick start — Docker Compose (recommended)
+
+Docker Compose starts the database, API, and Streamlit frontend together. Ollama runs on the host machine and is reached by the API container through `host.docker.internal`.
 
 ### 1. Clone the repository
 
-```bash
+```powershell
 git clone https://github.com/RebyTK/DocuMind.git
 cd DocuMind
 ```
 
-### 2. Create a virtual environment
+### 2. Create the environment file
 
-**Windows PowerShell:**
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Set a strong, unique password for `POSTGRES_PASSWORD`. Keep `.env` private; it is ignored by Git. Never paste the real password into issues, screenshots, or commits.
+
+The example file contains the database settings used by Docker Compose:
+
+```dotenv
+POSTGRES_DB=documind
+POSTGRES_USER=documind_app
+POSTGRES_PASSWORD=replace-with-a-strong-password
+```
+
+### 3. Prepare Ollama
+
+Start Ollama on your host and download the model:
+
+```powershell
+ollama pull qwen3:4b
+ollama list
+```
+
+The API container is configured to reach Ollama at `http://host.docker.internal:11434`. Make sure the Ollama service is reachable from Docker Desktop. Do not expose the Ollama port to the public internet.
+
+### 4. Build and start DocuMind
+
+From the repository root:
+
+```powershell
+docker compose up --build -d
+```
+
+Check container health:
+
+```powershell
+docker compose ps
+```
+
+The expected services are:
+
+| Service | Local address | Purpose |
+|---|---|---|
+| Streamlit | http://localhost:8501 | Web interface |
+| FastAPI | http://localhost:8000 | REST API |
+| FastAPI docs | http://localhost:8000/docs | Interactive API documentation |
+| PostgreSQL | `127.0.0.1:5432` | Persistent vector database |
+
+The Compose configuration includes health checks for PostgreSQL, FastAPI, and Streamlit. The PostgreSQL data and embedding-model cache are stored in named Docker volumes.
+
+### 5. Verify the services
+
+```powershell
+Invoke-RestMethod http://localhost:8000/health
+Invoke-RestMethod http://localhost:8000/health/database
+```
+
+Open [http://localhost:8501](http://localhost:8501), check that your document library loads, run a semantic search, and ask a question in **Chat with Documents**. A successful question should return an answer with source citations.
+
+### Useful Docker commands
+
+```powershell
+# View running services and health
+
+docker compose ps
+
+# Follow logs
+
+docker compose logs -f api
+
+docker compose logs -f frontend
+
+docker compose logs -f postgres
+
+# Stop the containers but preserve named volumes and database data
+
+docker compose down
+
+# Rebuild after changing application code or dependencies
+
+docker compose up --build -d
+```
+
+**Data safety:** `docker compose down` preserves named volumes. Avoid `docker compose down -v` unless you intentionally want to delete the PostgreSQL data and cached model volume. The SQL file under `database/migrations/` is mounted as a PostgreSQL initialization script; Docker's PostgreSQL entrypoint runs initialization scripts when the database volume is first created, not on every restart.
+
+## Run components directly on the host (development)
+
+Docker Compose is the recommended way to run the complete stack. For Python development, you can run the API and Streamlit processes on the host while PostgreSQL runs in Docker.
+
+### 1. Create a virtual environment and install dependencies
 
 ```powershell
 py -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-### 3. Install dependencies
+### 2. Start PostgreSQL
+
+Configure `.env` with the database name, user, and password. For a host-run Python process, the database connection defaults to `127.0.0.1:5432`.
 
 ```powershell
-py -m pip install -r requirements.txt
+docker compose up -d postgres
 ```
 
-The first embedding-model initialization downloads `all-MiniLM-L6-v2` if it is not already available locally.
+For a brand-new database volume, the initialization migration is applied automatically. If you are connecting to an existing database, check that the schema migration has already been applied before running the API or CLI.
 
-## Usage
-
-Place your input documents inside the local `documents/` directory.
-
-### 1. Ingest documents
-
-Process a PDF:
+### 3. Start Ollama
 
 ```powershell
-py main.py documents/sample.pdf
+ollama pull qwen3:4b
 ```
 
-Process a DOCX:
+The host-run API uses `http://localhost:11434` by default. The model name defaults to `qwen3:4b`; both can be overridden using `OLLAMA_URL` and `OLLAMA_MODEL` environment variables.
+
+### 4. Start the FastAPI backend
+
+In one terminal:
 
 ```powershell
-py main.py documents/sample.docx
+uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Process a TXT file:
+### 5. Start the Streamlit frontend
+
+In a second terminal:
 
 ```powershell
-py main.py documents/sample.txt
+$env:DOCUMIND_API_URL = "http://127.0.0.1:8000"
+streamlit run frontend/streamlit_app.py
 ```
 
-You can ingest multiple documents by running the command for each file. DocuMind registers each document and persists its chunks and embeddings.
+Open [http://localhost:8501](http://localhost:8501).
 
-Repeated ingestion of an already registered file is skipped using SHA-256 duplicate detection.
+## API endpoints
 
-### 2. Search across registered documents
-
-Once documents have been ingested, run semantic search:
-
-```powershell
-py main.py documents/sample.pdf --query "How does BERT differ from the original Transformer?" --top-k 5
-```
-
-The CLI currently requires a valid document path even when using `--query`. Pass a document already present in your collection to search without ingesting a duplicate.
-
-**Search arguments:**
-
-| Argument | Description | Default |
+| Method | Endpoint | Purpose |
 |---|---|---|
-| `file` | Input document path | Required |
-| `--query` | Semantic search query | None |
-| `--top-k` | Number of chunks to retrieve | 3 |
+| GET | `/` | API welcome / service information |
+| GET | `/health` | API health check |
+| GET | `/health/database` | Database connectivity check |
+| POST | `/api/v1/documents` | Upload and ingest a document |
+| GET | `/api/v1/documents` | List indexed documents |
+| GET | `/api/v1/documents/{document_id}` | Retrieve document details |
+| DELETE | `/api/v1/documents/{document_id}` | Delete a document and its chunks |
+| POST | `/api/v1/search` | Retrieve relevant passages |
+| POST | `/api/v1/ask` | Generate a grounded answer with source citations |
 
-Search results include:
+See [http://localhost:8000/docs](http://localhost:8000/docs) for the live request and response schemas when the API is running.
 
-- Source filename.
-- Document ID.
-- Chunk ID and chunk index.
-- Page number when available.
-- Similarity score.
-- Retrieved chunk content.
+## CLI usage
 
-## Data Persistence & Generated Outputs
-
-Generated data is stored locally under `output/`.
-
-| File / Directory | Description |
-|---|---|
-| `output/document_registry.json` | Registry of ingested documents |
-| `output/documents/*_cleaned.txt` | Cleaned PDF/TXT content |
-| `output/documents/*_cleaned.md` | Formatted DOCX content |
-| `output/documents/*_metadata.json` | Document statistics and metadata |
-| `output/documents/*_chunks.json` | Persisted text chunks |
-| `output/documents/*_embeddings.json` | Chunks, metadata, and embeddings |
-| `output/documind.log` | Application execution logs |
-
-The shared FAISS index is rebuilt in memory from persisted embeddings when the CLI runs. The embedding data and document registry are persisted between runs.
-
-Generated outputs and user-provided documents are excluded from Git.
-
-## Running Tests
-
-Run the complete test suite from the project root:
+The CLI uses PostgreSQL as the primary document store and retrieval backend. Ensure PostgreSQL is running and the `.env` connection settings point to it.
 
 ```powershell
-python -m pytest -v
+# Ingest a document
+python main.py "C:\path\to\your_document.pdf"
+
+# List indexed documents
+python main.py --list-documents
+
+# Search indexed documents
+python main.py --query "What is BERT's architecture?" --top-k 5
+
+# Ask a question and generate an answer using Ollama
+python main.py --query "What is BERT's architecture?" --top-k 5 --answer
+
+# Delete a document by its document ID
+python main.py --delete DOCUMENT_ID
 ```
 
-**Current local test status: 92 tests passing.**
+Supported file types: `.pdf`, `.docx`, and `.txt`. Duplicate files are detected using a SHA-256 hash.
 
-The test suite covers:
+## Tests
 
-- Text cleaning and validation.
-- Document statistics.
-- Chunk generation, overlap, and metadata.
-- Document ID generation.
-- PDF and DOCX extraction.
-- PDF table extraction.
-- Markdown formatting.
-- Embedding generation.
-- FAISS index creation and semantic search.
-- Document registry and persistence.
-- Duplicate document detection.
-- Multi-document index rebuilding.
-- Retrieval evaluation metrics.
-- End-to-end processing pipelines.
+Run the default test suite from the repository root:
 
-## Current Limitations
+```powershell
+python -m pytest -q
+```
 
-- Scanned PDFs requiring OCR are not supported.
-- Embedded images are not interpreted.
-- PDF table extraction may not preserve complex layouts perfectly.
-- Chunking uses character-based boundaries rather than semantic or structure-aware boundaries.
-- Semantic retrieval quality can vary depending on query wording and document content.
-- The FAISS index is rebuilt in memory from persisted embeddings rather than saved as a standalone index.
-- LLM-based answer generation and conversational question answering are not implemented yet.
-- Generated answers with source citations are not implemented yet.
-- The application currently runs as a local CLI tool.
+Database integration tests are opt-in. With PostgreSQL running and the schema initialized:
 
-## Roadmap
+```powershell
+$env:DOCUMIND_RUN_DB_TESTS = "1"
+python -m pytest -q
+Remove-Item Env:DOCUMIND_RUN_DB_TESTS
+```
 
-- [x] Multi-format document extraction (PDF, DOCX, TXT).
-- [x] Text chunking with overlap and metadata.
-- [x] Transformer-based embedding generation.
-- [x] FAISS vector indexing and semantic retrieval.
-- [x] Persistent multi-document registry and storage.
-- [x] Duplicate document detection.
-- [x] Document-aware retrieval diversity.
-- [x] Retrieval evaluation metrics.
-- [ ] Local LLM integration using Ollama.
-- [ ] RAG-based grounded question answering.
-- [ ] Source attribution and citations in generated answers.
-- [ ] Query decomposition and retrieval reranking.
-- [ ] Improved retrieval evaluation and benchmarking.
-- [ ] Streamlit user interface.
-- [ ] FastAPI backend.
-- [ ] Docker-based deployment.
+The test suite covers document extraction, cleaning, chunking, embedding helpers, CLI behavior, API routes, repositories, ingestion safety, and document lifecycle behavior. Tests that require a live database are skipped unless the database-test flag is enabled. A test count or pass status should only be added after running the suite against the current revision and environment.
 
-## Project Goal
+## Data and configuration
 
-DocuMind is being developed as a practical AI Engineering portfolio project to explore document processing, vector embeddings, information retrieval, and RAG system architecture.
+- PostgreSQL is the persistent store for document records, chunks, metadata, and vector embeddings.
+- The pgvector column stores 384-dimensional embeddings from `all-MiniLM-L6-v2`.
+- The initial migration creates the schema, vector column, and cosine-similarity HNSW index.
+- `documents/` and `output/` are local working directories. Keep private documents, generated embeddings, logs, and local data out of Git.
+- `.env` contains local credentials. Commit only `.env.example` with placeholder values.
+- Docker Compose keeps the database, API, and frontend ports bound to the local machine by default.
 
-The long-term objective is to build a local knowledge intelligence platform that can retrieve relevant information from multiple documents and generate grounded, context-aware answers with source attribution.
+## Current scope and limitations
+
+- DocuMind is designed for local development and demonstration; it is not presented as a production-hardened multi-user service.
+- Scanned PDFs requiring OCR are not processed by the current text-extraction pipeline.
+- Complex PDF layouts and tables may not be reconstructed perfectly.
+- Retrieval quality depends on document content, chunk boundaries, and query wording.
+- Answers are generated from retrieved context and include source references. Citation-label validation is not equivalent to independently proving that every answer claim is entailed by its cited passage.
+- Local generation requires Ollama and sufficient host resources for the selected model.
+
+## Project goal
+
+DocuMind demonstrates the end-to-end engineering of a practical RAG system: document ingestion, chunking, embedding generation, persistent vector retrieval, API design, a user-facing interface, and locally generated answers with source references. The emphasis is on a modular and understandable implementation using familiar Python tooling and local infrastructure.
 
 ---
 
-**Built with Python, Sentence Transformers, FAISS, and a focus on practical AI Engineering.**
-
-[GitHub Repository](https://github.com/RebyTK/DocuMind)
+**Repository:** https://github.com/RebyTK/DocuMind

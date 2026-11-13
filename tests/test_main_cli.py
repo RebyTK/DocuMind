@@ -1,13 +1,6 @@
-
 import sys
-
 import pytest
-
 import main as main_module
-
-
-class FakeIndex:
-    ntotal = 1
 
 
 class FakeVector:
@@ -22,27 +15,15 @@ class FakeEmbeddingModel:
 
 @pytest.fixture
 def cli_environment(monkeypatch, tmp_path):
-    """Prepare a mocked environment for CLI integration tests."""
+    """Prepare a mocked environment for PostgreSQL CLI tests."""
 
     monkeypatch.chdir(tmp_path)
 
-    documents_dir = tmp_path / "documents"
-    documents_dir.mkdir()
-
-    document_path = documents_dir / "bert.pdf"
-    document_path.write_bytes(b"fake PDF content")
-
-    document = {
-        "document_id": "doc_bert",
-        "filename": "bert.pdf",
-        "file_type": "pdf",
-    }
-
-    registry = {
-        "documents": {
-            "doc_bert": document,
-        }
-    }
+    monkeypatch.setattr(
+        main_module,
+        "setup_logging",
+        lambda output_dir: None,
+    )
 
     retrieved_results = [
         {
@@ -58,43 +39,11 @@ def cli_environment(monkeypatch, tmp_path):
         }
     ]
 
-    state = {
-        "search_calls": [],
-        "search_results": retrieved_results,
-    }
+    state = {"retrieval_calls": []}
 
-    monkeypatch.setattr(
-        main_module,
-        "setup_logging",
-        lambda output_dir: None,
-    )
-
-    monkeypatch.setattr(
-        main_module,
-        "load_registry",
-        lambda path: registry,
-    )
-
-    monkeypatch.setattr(
-        main_module,
-        "calculate_file_hash",
-        lambda path: "fake_hash",
-    )
-
-    monkeypatch.setattr(
-        main_module,
-        "find_document_by_hash",
-        lambda registry, file_hash: document,
-    )
-
-    monkeypatch.setattr(
-        main_module,
-        "rebuild_shared_index",
-        lambda registry, output_dir: (
-            FakeIndex(),
-            retrieved_results,
-        ),
-    )
+    def fake_retrieve_chunks(**kwargs):
+        state["retrieval_calls"].append(kwargs)
+        return retrieved_results
 
     monkeypatch.setattr(
         main_module,
@@ -102,18 +51,13 @@ def cli_environment(monkeypatch, tmp_path):
         lambda: FakeEmbeddingModel(),
     )
 
-    def fake_search_index(**kwargs):
-        state["search_calls"].append(kwargs)
-        return state["search_results"]
-
     monkeypatch.setattr(
         main_module,
-        "search_index",
-        fake_search_index,
+        "retrieve_chunks",
+        fake_retrieve_chunks,
     )
 
     return {
-        "document_path": document_path,
         "retrieved_results": retrieved_results,
         "state": state,
     }
@@ -124,14 +68,13 @@ def test_cli_semantic_search_mode(
     monkeypatch,
     capsys,
 ):
-    """Test semantic search without LLM generation."""
+    """Test PostgreSQL semantic search without LLM generation."""
 
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "main.py",
-            str(cli_environment["document_path"]),
             "--query",
             "What is BERT?",
             "--top-k",
@@ -147,12 +90,11 @@ def test_cli_semantic_search_mode(
     assert "BERT uses a bidirectional Transformer encoder." in output
     assert "DOCUMIND GENERATED ANSWER" not in output
 
-    assert len(cli_environment["state"]["search_calls"]) == 1
+    calls = cli_environment["state"]["retrieval_calls"]
 
-    assert (
-        cli_environment["state"]["search_calls"][0]["top_k"]
-        == 3
-    )
+    assert len(calls) == 1
+    assert calls[0]["backend"] == "postgres"
+    assert calls[0]["top_k"] == 3
 
 
 def test_cli_answer_mode(
@@ -160,18 +102,13 @@ def test_cli_answer_mode(
     monkeypatch,
     capsys,
 ):
-    """Test RAG answer generation through the CLI."""
+    """Test PostgreSQL retrieval followed by RAG generation."""
 
     generated_result = {
-        "answer": "BERT uses a bidirectional Transformer encoder [S1].",
-        "sources": [
-            {
-                "citation": "S1",
-                "source": "bert.pdf",
-                "page_number": 3,
-                "chunk_id": "bert_chunk_001",
-            }
-        ],
+        "answer": (
+            "BERT uses a bidirectional Transformer encoder [S1]."
+        ),
+        "sources": [],
         "cited_sources": [
             {
                 "citation": "S1",
@@ -199,7 +136,7 @@ def test_cli_answer_mode(
 
     def unexpected_search_display(*args, **kwargs):
         pytest.fail(
-            "Raw semantic search output should not appear in answer mode."
+            "Raw search output should not appear in answer mode."
         )
 
     monkeypatch.setattr(
@@ -213,7 +150,6 @@ def test_cli_answer_mode(
         "argv",
         [
             "main.py",
-            str(cli_environment["document_path"]),
             "--query",
             "What is BERT's architecture?",
             "--top-k",
@@ -228,8 +164,12 @@ def test_cli_answer_mode(
 
     assert "DOCUMIND GENERATED ANSWER" in output
     assert "BERT uses a bidirectional Transformer encoder [S1]." in output
-    assert "[S1][bert.pdf, Page3]" in output
+    assert "[S1] bert.pdf, Page 3" in output
     assert "DOCUMIND SEMANTIC SEARCH" not in output
 
     assert received["question"] == "What is BERT's architecture?"
     assert received["chunks"] == cli_environment["retrieved_results"]
+
+    calls = cli_environment["state"]["retrieval_calls"]
+
+    assert calls[0]["backend"] == "postgres"

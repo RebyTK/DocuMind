@@ -1,5 +1,6 @@
 import json
 import sys
+import pytest
 from pathlib import Path
 from docx import Document
 import main
@@ -7,9 +8,10 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 
 
+
 def test_docx_pipeline_generates_markdown_and_metadata(
-    tmp_path: Path,
-    monkeypatch,
+    tmp_path,
+    mock_postgres_ingestion,
 ):
     documents_dir = tmp_path / "documents"
     documents_dir.mkdir()
@@ -25,52 +27,41 @@ def test_docx_pipeline_generates_markdown_and_metadata(
     table.rows[0].cells[1].text = "Revenue"
     document.save(docx_path)
 
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["main.py", str(docx_path)],
+    result = main.ingest_document_to_postgres(
+        docx_path,
+        embedding_model=object(),
     )
 
-    main.main()
+    assert result["inserted"] is True
 
-    output_dir = tmp_path / "output"
-    registry_path = output_dir / "document_registry.json"
+    persisted_document = mock_postgres_ingestion["document"]
+    embedded_chunks = mock_postgres_ingestion["embedded_chunks"]
 
-    registry = json.loads(
-        registry_path.read_text(encoding="utf-8")
+    assert persisted_document["file_type"] == "docx"
+    assert persisted_document["filename"] == "report.docx"
+
+    combined_text = "\n".join(
+        chunk["text"]
+        for chunk in embedded_chunks
     )
 
-    document = next(
-        iter(registry["documents"].values())
-    )
+    assert "Quarterly Revenue" in combined_text
+    assert "Revenue increased by 12%" in combined_text
+    assert "Quarter" in combined_text
+    assert "Revenue" in combined_text
 
-    markdown_path = output_dir / document["cleaned_file"]
-    metadata_path = output_dir / document["metadata_file"]
-
-    assert markdown_path.is_file()
-    assert metadata_path.is_file()
-
-    markdown = markdown_path.read_text(encoding="utf-8")
-    assert "# Quarterly Revenue" in markdown
-    assert "Revenue increased by 12%." in markdown
-    assert "| Quarter | Revenue |" in markdown
-
-    metadata = json.loads(
-        metadata_path.read_text(encoding="utf-8")
-    )
-
-    assert metadata["filename"] == "report.docx"
-    assert metadata["output_file"] == Path(
-        document["cleaned_file"]
-    ).name
-    assert any(
-        element["type"] == "table"
-        for element in metadata["elements"]
+    assert all(
+        len(chunk["embedding"]) == 384
+        for chunk in embedded_chunks
     )
 
 
-def test_pdf_pipeline_preserves_tables(tmp_path, monkeypatch):
+
+
+def test_pdf_pipeline_preserves_tables(
+    tmp_path,
+    mock_postgres_ingestion,
+):
     pdf_path = tmp_path / "report.pdf"
 
     data = [
@@ -90,44 +81,94 @@ def test_pdf_pipeline_preserves_tables(tmp_path, monkeypatch):
 
     document.build([table])
 
-    monkeypatch.chdir(tmp_path)
+    result = main.ingest_document_to_postgres(
+        pdf_path,
+        embedding_model=object(),
+    )
+
+    assert result["inserted"] is True
+
+    persisted_document = mock_postgres_ingestion["document"]
+    embedded_chunks = mock_postgres_ingestion["embedded_chunks"]
+
+    assert persisted_document["file_type"] == "pdf"
+
+    combined_text = "\n".join(
+        chunk["text"]
+        for chunk in embedded_chunks
+    )
+
+    assert "Quarter" in combined_text
+    assert "Revenue" in combined_text
+    assert "Q1" in combined_text
+    assert "$100,000" in combined_text
+    assert "Q2" in combined_text
+    assert "$112,000" in combined_text
+
+    # PDF chunks should preserve page metadata.
+    assert all(
+        chunk["metadata"]["page_number"] is not None
+        for chunk in embedded_chunks
+    )
+
+
+@pytest.fixture
+def mock_postgres_ingestion(monkeypatch):
+    """Mock PostgreSQL persistence while preserving real extraction."""
+
+    captured = {}
+
     monkeypatch.setattr(
-        sys,
-        "argv",
-        ["main.py", str(pdf_path)],
+        main,
+        "calculate_file_hash",
+        lambda path: "test-pipeline-hash",
     )
 
-    main.main()
-
-    output_dir = tmp_path / "output"
-
-    registry_path = output_dir / "document_registry.json"
-
-    registry = json.loads(
-        registry_path.read_text(encoding="utf-8")
+    monkeypatch.setattr(
+        main,
+        "get_document_by_hash",
+        lambda file_hash: None,
     )
 
-    document = next(
-        iter(registry["documents"].values())
+    monkeypatch.setattr(
+        main,
+        "generate_document_id",
+        lambda: "doc_pipeline_test",
     )
 
-    cleaned_path = output_dir / document["cleaned_file"]
-    metadata_path = output_dir / document["metadata_file"]
+    # Keep real document extraction and chunking.
+    # Mock only embedding generation and database persistence.
+    def fake_embed_chunks(chunks, model):
+        return [
+            {
+                **chunk,
+                "embedding": [1.0] + [0.0] * 383,
+            }
+            for chunk in chunks
+        ]
 
-    assert cleaned_path.is_file()
-    assert metadata_path.is_file()
+    def fake_persist(document, embedded_chunks):
+        captured["document"] = document
+        captured["embedded_chunks"] = embedded_chunks
 
-    cleaned_text = cleaned_path.read_text(encoding="utf-8")
+        return {
+            "inserted": True,
+            "document_id": document["document_id"],
+            "filename": document["filename"],
+            "total_chunks": len(embedded_chunks),
+        }
 
-    assert "| Quarter | Revenue |" in cleaned_text
-    assert "| Q1 | $100,000 |" in cleaned_text
-
-    metadata = json.loads(
-        metadata_path.read_text(encoding="utf-8")
+    monkeypatch.setattr(
+        main,
+        "embed_chunks",
+        fake_embed_chunks,
     )
 
-    assert "tables" in metadata
-    assert len(metadata["tables"]) == 1
-    assert metadata["tables"][0]["page"] == 1
-    assert metadata["tables"][0]["rows"][1] == ["Q1", "$100,000"]
+    monkeypatch.setattr(
+        main,
+        "persist_document_with_chunks",
+        fake_persist,
+    )
+
+    return captured
 

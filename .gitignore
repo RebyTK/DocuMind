@@ -1,31 +1,38 @@
-# Virtual environment
+# Python virtual environments
 .venv/
 venv/
+env/
 
-# Python cache
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
-
-# Pytest cache and coverage
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Test and coverage artifacts
 .coverage
+.coverage.*
 htmlcov/
 
-# Generated outputs and logs
-output/
-*.log
-
-# Environment variables and secrets
+# Environment files and secrets
 .env
 .env.*
+!.env.example
 
-# IDE and operating system files
+# Local documents, generated data, logs, and model caches
+documents/*
+!documents/.gitkeep
+output/
+*.log
+.cache/
+models/
+
+# Editors and operating systems
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 
-# User-provided documents and research corpus
-documents/*
-# Generated local project tree
+# Local scratch files
 project_structure.txt

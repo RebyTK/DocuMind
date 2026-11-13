@@ -7,3 +7,12 @@ sentence-transformers
 faiss-cpu==1.14.2
 numpy
 requests>=2.32,<3
+psycopg[binary]>=3.2,<4
+python-dotenv>=1.0,<2
+pgvector>=0.4,<1
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-multipart>=0.0.9
+httpx>=0.27,<1
+streamlit
+requests
