@@ -6,3 +6,4 @@ reportlab==5.1.0
 sentence-transformers
 faiss-cpu==1.14.2
 numpy
+requests>=2.32,<3

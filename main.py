@@ -1,4 +1,3 @@
-
 import argparse
 import json
 import logging
@@ -28,6 +27,7 @@ from processor.document_manager import (
     save_document_data,
     rebuild_shared_index,
 )
+from processor.llm import generate_answer
 
 
 SUPPORTED_EXTENSIONS = {".txt", ".pdf", ".docx"}
@@ -402,8 +402,16 @@ def main():
         default=3,
         help="Number of relevant chunks to retrieve",
     )
+    parser.add_argument(
+        "--answer",
+        action="store_true",
+        help = "Generate a grounded answer using local LLM",
+    )
 
     args = parser.parse_args()
+
+    if args.answer and not args.query:
+        parser.error("--answer requires --query.")
 
     if args.top_k < 1:
         parser.error("--top-k must be at least 1")
@@ -517,14 +525,51 @@ def main():
                 show_progress_bar=False,
             )[0].tolist()
 
+            #Retrieve relevant chunks from the shared FAISS index.
             results = search_index(
                 query_embedding=query_embedding,
                 index=index,
                 embedded_chunks=all_embedded_chunks,
                 top_k=args.top_k,
             )
+            if args.answer:
+                answer_result = generate_answer(
+                    question=args.query,
+                    retrieved_chunks=results,
+                )
+                print("\n================================")
+                print("DOCUMIND GENERATED ANSWER")
+                print("================================")
+                print(answer_result["answer"])
 
-            display_search_results(args.query, results)
+                print("\nCited Sources:")
+
+                cited_sources = answer_result["cited_sources"]
+                invalid_citations = answer_result["invalid_citations"]
+                if cited_sources:
+                    for source in cited_sources:
+                        page = source["page_number"]
+
+                        page_info = (
+                            f", Page{page}"
+                            if page is not None
+                            else ""
+                        )
+                        print(
+                            f"[{source["citation"]}]"
+                            f"[{source["source"]}{page_info}]"
+                        )
+                else:
+                    print("No valid source citations were identified")
+                if invalid_citations:
+                    print("\nWARNING: Invalid citation references detected: ")
+                    print(", ".join(invalid_citations))
+
+            else:
+                #Display raw retrieval results when --answer is not specified.
+                display_search_results(args.query, results)
+
+            
 
         except Exception:
             logging.exception("Semantic search failed")
